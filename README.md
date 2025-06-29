@@ -7,7 +7,20 @@ import threading
 import os
 import webbrowser
 import csv
-from parser import process_file_to_jsonl
+# Предполагается, что файл parser.py с функцией process_file_to_jsonl находится рядом
+# from parser import process_file_to_jsonl
+
+# --- Заглушка для тестирования, если parser.py отсутствует ---
+def process_file_to_jsonl(input_path, output_path, level, augment, factor):
+    import time
+    print(f"Обработка {input_path} с параметрами: {level}, {augment}, {factor}")
+    time.sleep(3) # Имитация долгой работы
+    with open(output_path, "w") as f:
+        f.write('{"message": "Тестовый результат"}\n')
+    # Возвращает (начальное кол-во, итоговое кол-во)
+    return 10, 10 * factor if augment else 10
+# --- Конец заглушки ---
+
 
 # --- Импорт для Drag & Drop ---
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -27,7 +40,7 @@ class App:
         
         self.DND_READY_BG = ("#E0FFE0", "#004225")
         self.DND_AWAITING_BG = ("#FFD1D1", "#5C1F1F")
-        self.BUTTON_DISABLED_COLOR = ("#FFD1D1", "#5C1F1F")
+        self.BUTTON_DISABLED_COLOR = ("#C0C0C0", "#505050") # Более нейтральный серый
         self.BUTTON_ENABLED_COLOR = customtkinter.ThemeManager.theme["CTkButton"]["fg_color"]
         
         self.input_filepath = ""
@@ -37,7 +50,6 @@ class App:
         self.root.grid_rowconfigure(3, minsize=200)
         self.root.grid_columnconfigure(0, weight=1)
 
-        # --- Вызов методов, которые я случайно удалил ---
         self.create_main_menu()
         self.create_settings_widgets()
         self.create_dnd_area()
@@ -48,7 +60,6 @@ class App:
         self.reset_to_initial_state()
         self.log("Приложение готово. Перенесите файл в выделенную область или воспользуйтесь меню 'Файл'.")
 
-    # --- ВОЗВРАЩЕННЫЙ МЕТОД ---
     def create_main_menu(self):
         menubar = Menu(self.root)
         self.root.config(menu=menubar)
@@ -74,7 +85,6 @@ class App:
         self.root.bind("<Control-o>", lambda event: self.select_file_callback())
         self.root.bind("<Control-s>", lambda event: self.save_file_callback())
 
-    # --- ВОЗВРАЩЕННЫЙ МЕТОД ---
     def create_settings_widgets(self):
         parent = customtkinter.CTkFrame(self.root, height=150)
         parent.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
@@ -97,7 +107,6 @@ class App:
         self.aug_slider_label.pack(anchor="e")
         self.aug_slider.set(1)
 
-    # --- ВОЗВРАЩЕННЫЙ МЕТОД ---
     def create_log_widgets(self):
         parent = customtkinter.CTkFrame(self.root)
         parent.grid(row=3, column=0, padx=20, pady=10, sticky="nsew")
@@ -117,12 +126,17 @@ class App:
         self.progressbar.set(0)
 
     def create_action_buttons_area(self):
+        # Фрейм, в котором будут меняться кнопки
         self.action_frame = customtkinter.CTkFrame(self.root, fg_color="transparent")
         self.action_frame.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
+        # Настраиваем две колонки равной ширины для маленьких кнопок
         self.action_frame.grid_columnconfigure(0, weight=1)
         self.action_frame.grid_columnconfigure(1, weight=1)
+        
+        # 1. Большая кнопка "Сгенерировать"
         self.generate_button = customtkinter.CTkButton(self.action_frame, text="Сгенерировать датасет", height=40, font=customtkinter.CTkFont(size=16, weight="bold"), command=self.start_generation_thread)
-        self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        
+        # 2. Маленькие кнопки, которые появятся после
         self.download_result_button = customtkinter.CTkButton(self.action_frame, text="⬇️ Скачать результат", height=40, command=self.save_file_callback)
         self.restart_button = customtkinter.CTkButton(self.action_frame, text="🔄 Загрузить новый файл", height=40, command=self.reset_to_initial_state)
 
@@ -151,17 +165,24 @@ class App:
         self.dnd_button.grid(row=0, column=0)
 
     def reset_to_initial_state(self):
+        """Возвращает интерфейс к исходному состоянию."""
         self.input_filepath = ""
         self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG, border_color=self.DND_AWAITING_BG)
         self.dnd_filename_label.configure(text="Файл не выбран")
-        self.reset_file_button.grid_remove()
+        self.reset_file_button.grid_remove() # Скрываем кнопку сброса файла
+        
+        # --- ЛОГИКА ПЕРЕКЛЮЧЕНИЯ КНОПОК (ИСХОДНОЕ СОСТОЯНИЕ) ---
+        # 1. Скрываем маленькие кнопки "Скачать" и "Загрузить новый"
         self.download_result_button.grid_remove()
         self.restart_button.grid_remove()
-        self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        # 2. Показываем большую кнопку "Сгенерировать", растянув ее на 2 колонки
+        self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=0)
+        
         self.update_generate_button_state(ready=False)
         self.file_menu.entryconfigure("Сохранить как...", state="disabled")
+        
         if hasattr(self, 'log_textbox'):
-            self.log("Файл сброшен. Ожидание нового файла.")
+            self.log("Интерфейс сброшен. Ожидание нового файла.")
 
     def update_generate_button_state(self, ready: bool):
         if ready:
@@ -172,9 +193,12 @@ class App:
             self.service_menu.entryconfigure("Сгенерировать датасет", state="disabled")
     
     def process_selected_file(self, filepath):
+        """Обрабатывает выбранный файл и подготавливает UI к генерации."""
+        # Сначала сбрасываем кнопки в исходное состояние "ожидания генерации"
         self.download_result_button.grid_remove()
         self.restart_button.grid_remove()
         self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        
         self.input_filepath = filepath
         filename = os.path.basename(filepath)
         self.dnd_filename_label.configure(text=f"Выбран файл: {filename}")
@@ -197,32 +221,44 @@ class App:
         thread.start()
         
     def generation_finished(self, initial_count, total_count):
+        """Вызывается после успешной генерации для обновления UI."""
         self.log("Генерация успешно завершена!")
         if initial_count != total_count:
             self.log(f"Найдено и отфильтровано записей: {initial_count}")
         self.log(f"Итоговое кол-во записей: {total_count}")
         if total_count == 0:
             self.log("ВНИМАНИЕ: Результат пустой.")
+            
         self.progressbar.stop()
         self.progressbar.set(1)
+        
+        # --- ЛОГИКА ПЕРЕКЛЮЧЕНИЯ КНОПОК (ПОСЛЕ ГЕНЕРАЦИИ) ---
+        # 1. Скрываем большую кнопку "Сгенерировать"
         self.generate_button.grid_remove()
-        self.download_result_button.grid(row=0, column=0, padx=(0,5), sticky="ew")
-        self.restart_button.grid(row=0, column=1, padx=(5,0), sticky="ew")
+        # 2. Показываем две маленькие кнопки в соответствующих колонках
+        self.download_result_button.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        self.restart_button.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        
         if total_count > 0:
             self.file_menu.entryconfigure("Сохранить как...", state="normal")
             self.download_result_button.configure(state="normal")
         else:
             self.download_result_button.configure(state="disabled")
+            self.file_menu.entryconfigure("Сохранить как...", state="disabled")
+
             
     def generation_failed(self, error):
+        """Вызывается при ошибке генерации."""
         self.log(f"ОШИБКА: {error}")
         messagebox.showerror("Ошибка генерации", str(error))
         self.progressbar.stop()
         self.progressbar.set(0)
+        
+        # Возвращаем UI в состояние "готов к повторной попытке"
         self.download_result_button.grid_remove()
         self.restart_button.grid_remove()
         self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew") 
-        self.update_generate_button_state(ready=True)
+        self.update_generate_button_state(ready=True) # Позволяем нажать снова
         self.file_menu.entryconfigure("Сохранить как...", state="disabled")
     
     def download_template(self):
@@ -236,6 +272,7 @@ class App:
             messagebox.showinfo("Успех", f"Шаблон 'template.csv' успешно сохранен!")
         except Exception as e:
             self.log(f"ОШИБКА при сохранении шаблона: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось сохранить шаблон:\n{e}")
 
     def on_mouse_enter(self, event):
         border_color = self.DND_READY_BG if self.input_filepath else customtkinter.ThemeManager.theme["CTkButton"]["fg_color"]
@@ -254,19 +291,26 @@ class App:
 
     def handle_drop(self, event):
         if not self.input_filepath: self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG)
+        # Убираем возможные фигурные скобки, которые tkinterdnd2 может добавлять
         filepath = event.data.strip('{}')
-        if os.path.isfile(filepath) and (filepath.endswith(".xlsx") or filepath.endswith(".csv")):
+        if os.path.isfile(filepath) and (filepath.lower().endswith(".xlsx") or filepath.lower().endswith(".csv")):
             self.process_selected_file(filepath)
         else:
             messagebox.showwarning("Неверный файл", f"Можно перетаскивать только файлы .xlsx и .csv.\nВы перетащили: {filepath}")
 
     def select_file_callback(self):
-        filepath = filedialog.askopenfilename(title="Выберите файл", filetypes=(("Excel", "*.xlsx"), ("CSV", "*.csv")))
+        filepath = filedialog.askopenfilename(title="Выберите файл", filetypes=(("Excel", "*.xlsx"), ("CSV", "*.csv"), ("Все файлы", "*.*")))
         if filepath: self.process_selected_file(filepath)
             
     def save_file_callback(self):
-        if not os.path.exists(self.output_filename) or self.file_menu.entrycget("Сохранить как...", "state") == "disabled": return messagebox.showwarning("Нет данных", "Сначала успешно сгенерируйте файл для сохранения!")
-        save_path = filedialog.asksaveasfilename(defaultextension=".jsonl", initialfile=self.output_filename, filetypes=[("JSON Lines", "*.jsonl")])
+        if self.file_menu.entrycget("Сохранить как...", "state") == "disabled":
+            messagebox.showwarning("Нет данных", "Сначала успешно сгенерируйте файл для сохранения!")
+            return
+        if not os.path.exists(self.output_filename):
+            messagebox.showwarning("Файл не найден", "Промежуточный файл 'dataset.jsonl' не найден. Возможно, генерация не была завершена.")
+            return
+
+        save_path = filedialog.asksaveasfilename(defaultextension=".jsonl", initialfile=self.output_filename, title="Сохранить результат как...", filetypes=[("JSON Lines", "*.jsonl")])
         if save_path:
             try:
                 import shutil
@@ -275,6 +319,8 @@ class App:
                 messagebox.showinfo("Успех", f"Файл сохранен в:\n{save_path}")
             except Exception as e:
                 self.log(f"Ошибка сохранения: {e}")
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
+
 
     def run_generation(self):
         try:
@@ -307,10 +353,14 @@ class App:
         self.log_textbox.configure(state="disabled")
         self.log_textbox.see("end")
         
-    def show_help(self): webbrowser.open_new_tab("https://github.com")
-    def show_about(self): messagebox.showinfo("О программе", "SQL Dataset Generator LLM\n\nВерсия 1.9\nРазработано в рамках проекта Роспатента.")
+    def show_help(self): webbrowser.open_new_tab("https://github.com") # Замените на реальную ссылку
+    def show_about(self): messagebox.showinfo("О программе", "SQL Dataset Generator LLM\n\nВерсия 1.9.1\nРазработано в рамках проекта Роспатента.")
 
 if __name__ == "__main__":
+    # Устанавливаем тему до создания окна
+    customtkinter.set_appearance_mode("System")
+    customtkinter.set_default_color_theme("blue")
+    
     root = CTk_dnd()
     app = App(root)
     root.mainloop()
