@@ -6,7 +6,9 @@ from tkinter import filedialog, messagebox
 import threading
 import os
 import webbrowser
-import csv  # --- ИЗМЕНЕНИЕ: Импортируем модуль csv ---
+import csv
+import shutil
+# Предполагается, что файл parser.py с функцией process_file_to_jsonl находится рядом
 from parser import process_file_to_jsonl
 
 # --- Импорт для Drag & Drop ---
@@ -27,7 +29,7 @@ class App:
         
         self.DND_READY_BG = ("#E0FFE0", "#004225")
         self.DND_AWAITING_BG = ("#FFD1D1", "#5C1F1F")
-        self.BUTTON_DISABLED_COLOR = ("#FFD1D1", "#5C1F1F")
+        self.BUTTON_DISABLED_COLOR = ("#C0C0C0", "#505050")
         self.BUTTON_ENABLED_COLOR = customtkinter.ThemeManager.theme["CTkButton"]["fg_color"]
         
         self.input_filepath = ""
@@ -37,21 +39,22 @@ class App:
         self.root.grid_rowconfigure(3, minsize=200)
         self.root.grid_columnconfigure(0, weight=1)
 
+        # Создаем все элементы интерфейса
         self.create_main_menu()
         self.create_settings_widgets()
         self.create_dnd_area()
+        # ### ИЗМЕНЕНИЕ: Восстанавливаем правильный метод создания кнопок ###
+        self.create_action_buttons_area()
         self.create_log_widgets()
 
+        # Первоначальная настройка
         self.toggle_augmentation_slider()
         self.reset_to_initial_state()
         self.log("Приложение готово. Перенесите файл в выделенную область или воспользуйтесь меню 'Файл'.")
 
-    # --- Методы создания виджетов ---
     def create_main_menu(self):
         menubar = Menu(self.root)
         self.root.config(menu=menubar)
-        
-        # Меню "Файл"
         self.file_menu = Menu(menubar, tearoff=0)
         self.file_menu.add_command(label="Открыть...", command=self.select_file_callback, accelerator="Ctrl+O")
         self.file_menu.add_command(label="Сохранить как...", command=self.save_file_callback, state="disabled", accelerator="Ctrl+S")
@@ -59,16 +62,13 @@ class App:
         self.file_menu.add_command(label="Выход", command=self.root.quit)
         menubar.add_cascade(label="Файл", menu=self.file_menu)
 
-        # Меню "Сервис"
         self.service_menu = Menu(menubar, tearoff=0)
         self.service_menu.add_command(label="Сгенерировать датасет", command=self.start_generation_thread, state="disabled")
-        # --- ИЗМЕНЕНИЕ: Добавляем новый пункт меню ---
         self.service_menu.add_command(label="Скачать шаблон (.csv)", command=self.download_template)
         self.service_menu.add_separator()
         self.service_menu.add_command(label="Очистить лог", command=self.clear_log)
         menubar.add_cascade(label="Сервис", menu=self.service_menu)
         
-        # Меню "Помощь"
         help_menu = Menu(menubar, tearoff=0)
         help_menu.add_command(label="Документация", command=self.show_help)
         help_menu.add_command(label="О программе", command=self.show_about)
@@ -76,77 +76,6 @@ class App:
         
         self.root.bind("<Control-o>", lambda event: self.select_file_callback())
         self.root.bind("<Control-s>", lambda event: self.save_file_callback())
-
-    # --- ИЗМЕНЕНИЕ: Новый метод для скачивания шаблона ---
-    def download_template(self):
-        """Создает и предлагает сохранить CSV-шаблон с необходимыми заголовками."""
-        headers = [
-            'id', 'domain', 'domain_description', 'sql_complexity', 
-            'sql_complexity_description', 'sql_task_type', 'sql_task_type_description',
-            'sql_prompt', 'sql_context', 'sql', 'sql_explanation',
-            'prompt_variation_1', 'sql_variation_1',
-            'prompt_variation_2', 'sql_variation_2'
-        ]
-        
-        save_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            initialfile="template.csv",
-            title="Сохранить шаблон как...",
-            filetypes=[("CSV (разделители - запятые)", "*.csv")]
-        )
-        
-        if not save_path:
-            self.log("Операция сохранения шаблона отменена.")
-            return
-
-        try:
-            with open(save_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(headers)
-            
-            self.log(f"Шаблон успешно сохранен в: {save_path}")
-            messagebox.showinfo("Успех", f"Шаблон 'template.csv' успешно сохранен!\n\nТеперь вы можете открыть его в Excel или Google Таблицах и заполнить данными.")
-        except Exception as e:
-            self.log(f"ОШИБКА при сохранении шаблона: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось сохранить файл шаблона:\n{e}")
-
-    # --- Остальные методы (без изменений) ---
-    def reset_to_initial_state(self):
-        self.input_filepath = ""
-        self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG, border_color=self.DND_AWAITING_BG)
-        self.dnd_filename_label.configure(text="Файл не выбран")
-        self.reset_file_button.grid_remove()
-        self.update_generate_button_state(ready=False)
-        self.file_menu.entryconfigure("Сохранить как...", state="disabled")
-        self.log("Файл сброшен. Ожидание нового файла.")
-
-    def create_dnd_area(self):
-        self.dnd_frame = customtkinter.CTkFrame(self.root, border_width=2)
-        self.dnd_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
-        self.dnd_frame.grid_rowconfigure(0, weight=1)
-        self.dnd_frame.grid_columnconfigure(0, weight=1)
-        self.dnd_frame.drop_target_register(DND_FILES)
-        self.dnd_frame.dnd_bind('<<Drop>>', self.handle_drop)
-        self.dnd_frame.dnd_bind('<<DragEnter>>', self.on_drag_enter)
-        self.dnd_frame.dnd_bind('<<DragLeave>>', self.on_drag_leave)
-        self.dnd_frame.bind("<Enter>", self.on_mouse_enter)
-        self.dnd_frame.bind("<Leave>", self.on_mouse_leave)
-        self.dnd_label = customtkinter.CTkLabel(self.dnd_frame, text="Перенесите в выделенную область файл (.xlsx или .csv)\n\n", font=customtkinter.CTkFont(size=20))
-        self.dnd_label.pack(expand=True, padx=20, pady=20)
-        filename_container = customtkinter.CTkFrame(self.dnd_frame, fg_color="transparent")
-        filename_container.pack(pady=(0, 20), padx=20)
-        self.dnd_filename_label = customtkinter.CTkLabel(filename_container, text="", font=customtkinter.CTkFont(size=14, slant="italic"))
-        self.dnd_filename_label.grid(row=0, column=0)
-        self.reset_file_button = customtkinter.CTkButton(filename_container, text="❌", width=28, height=28, command=self.reset_to_initial_state)
-        self.reset_file_button.grid(row=0, column=1, padx=(10, 0))
-        dnd_button_container = customtkinter.CTkFrame(self.dnd_frame, fg_color="transparent")
-        dnd_button_container.pack(pady=(0, 20), padx=20, fill="x")
-        dnd_button_container.grid_columnconfigure(0, weight=1)
-        dnd_button_container.grid_columnconfigure(2, weight=1)
-        self.dnd_button = customtkinter.CTkButton(dnd_button_container, text="Или выберите файл вручную", command=self.select_file_callback)
-        self.dnd_button.grid(row=0, column=1, padx=10)
-        self.generate_button = customtkinter.CTkButton(self.root, text="Сгенерировать датасет", height=40, font=customtkinter.CTkFont(size=16, weight="bold"), command=self.start_generation_thread)
-        self.generate_button.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
 
     def create_settings_widgets(self):
         parent = customtkinter.CTkFrame(self.root, height=150)
@@ -169,6 +98,49 @@ class App:
         self.aug_slider_label = customtkinter.CTkLabel(aug_frame, text="Коэффициент увеличения: 1x")
         self.aug_slider_label.pack(anchor="e")
         self.aug_slider.set(1)
+        
+    def create_dnd_area(self):
+        self.dnd_frame = customtkinter.CTkFrame(self.root, border_width=2)
+        self.dnd_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
+        self.dnd_frame.grid_rowconfigure(0, weight=1)
+        self.dnd_frame.grid_columnconfigure(0, weight=1)
+        self.dnd_frame.drop_target_register(DND_FILES)
+        self.dnd_frame.dnd_bind('<<Drop>>', self.handle_drop)
+        self.dnd_frame.dnd_bind('<<DragEnter>>', self.on_drag_enter)
+        self.dnd_frame.dnd_bind('<<DragLeave>>', self.on_drag_leave)
+        self.dnd_frame.bind("<Enter>", self.on_mouse_enter)
+        self.dnd_frame.bind("<Leave>", self.on_mouse_leave)
+        
+        self.dnd_label = customtkinter.CTkLabel(self.dnd_frame, text="Перенесите в выделенную область файл (.xlsx или .csv)\n\n", font=customtkinter.CTkFont(size=20))
+        self.dnd_label.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        
+        filename_container = customtkinter.CTkFrame(self.dnd_frame, fg_color="transparent")
+        filename_container.grid(row=1, column=0, pady=(0, 10), padx=20)
+        self.dnd_filename_label = customtkinter.CTkLabel(filename_container, text="", font=customtkinter.CTkFont(size=14, slant="italic"))
+        self.dnd_filename_label.grid(row=0, column=0)
+        self.reset_file_button = customtkinter.CTkButton(filename_container, text="❌", width=28, height=28, command=self.reset_to_initial_state)
+        self.reset_file_button.grid(row=0, column=1, padx=(10, 0))
+        
+        dnd_button_container = customtkinter.CTkFrame(self.dnd_frame, fg_color="transparent")
+        dnd_button_container.grid(row=2, column=0, pady=(0, 20), padx=20)
+        self.dnd_button = customtkinter.CTkButton(dnd_button_container, text="Или выберите файл вручную", command=self.select_file_callback)
+        self.dnd_button.grid(row=0, column=0)
+
+    # ### ИЗМЕНЕНИЕ: Восстановлен правильный метод создания кнопок ###
+    def create_action_buttons_area(self):
+        # Фрейм, в котором будут меняться кнопки
+        self.action_frame = customtkinter.CTkFrame(self.root, fg_color="transparent")
+        self.action_frame.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
+        # Настраиваем две колонки равной ширины для маленьких кнопок
+        self.action_frame.grid_columnconfigure(0, weight=1)
+        self.action_frame.grid_columnconfigure(1, weight=1)
+        
+        # 1. Большая кнопка "Сгенерировать"
+        self.generate_button = customtkinter.CTkButton(self.action_frame, text="Сгенерировать датасет", height=40, font=customtkinter.CTkFont(size=16, weight="bold"), command=self.start_generation_thread)
+        
+        # 2. Маленькие кнопки, которые появятся после
+        self.download_result_button = customtkinter.CTkButton(self.action_frame, text="⬇️ Скачать результат", height=40, command=self.save_file_callback)
+        self.restart_button = customtkinter.CTkButton(self.action_frame, text="🔄 Загрузить новый файл", height=40, command=self.reset_to_initial_state)
 
     def create_log_widgets(self):
         parent = customtkinter.CTkFrame(self.root)
@@ -188,6 +160,23 @@ class App:
         self.progressbar.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.progressbar.set(0)
 
+    # ### ИЗМЕНЕНИЕ: Логика управления кнопками ###
+    def reset_to_initial_state(self):
+        self.input_filepath = ""
+        self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG, border_color=self.DND_AWAITING_BG)
+        self.dnd_filename_label.configure(text="Файл не выбран")
+        self.reset_file_button.grid_remove()
+        
+        self.download_result_button.grid_remove()
+        self.restart_button.grid_remove()
+        self.generate_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        
+        self.update_generate_button_state(ready=False)
+        self.file_menu.entryconfigure("Сохранить как...", state="disabled")
+        
+        if hasattr(self, 'log_textbox'):
+            self.log("Интерфейс сброшен. Ожидание нового файла.")
+
     def update_generate_button_state(self, ready: bool):
         if ready:
             self.generate_button.configure(state="normal", fg_color=self.BUTTON_ENABLED_COLOR)
@@ -197,6 +186,9 @@ class App:
             self.service_menu.entryconfigure("Сгенерировать датасет", state="disabled")
     
     def process_selected_file(self, filepath):
+        # При выборе нового файла всегда возвращаемся к большой кнопке "Сгенерировать"
+        self.reset_to_initial_state()
+        
         self.input_filepath = filepath
         filename = os.path.basename(filepath)
         self.dnd_filename_label.configure(text=f"Выбран файл: {filename}")
@@ -206,46 +198,16 @@ class App:
         self.reset_file_button.grid()
         self.file_menu.entryconfigure("Сохранить как...", state="disabled")
         
-    def on_mouse_enter(self, event):
-        self.dnd_frame.configure(border_color=customtkinter.ThemeManager.theme["CTkButton"]["fg_color"])
-
-    def on_mouse_leave(self, event):
-        if not self.input_filepath:
-            self.dnd_frame.configure(border_color=self.DND_AWAITING_BG)
-        else:
-            self.dnd_frame.configure(border_color=self.DND_READY_BG)
-
-    def on_drag_enter(self, event):
-        if not self.input_filepath:
-            self.dnd_frame.configure(fg_color=self.DND_READY_BG) # Используем сразу "готовый" цвет
-        return event.action
-
-    def on_drag_leave(self, event):
-        if not self.input_filepath:
-            self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG)
-
-    def handle_drop(self, event):
-        if not self.input_filepath:
-            self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG)
-        
-        filepath = event.data
-        if filepath.startswith('{') and filepath.endswith('}'):
-            filepath = filepath[1:-1]
-        if os.path.isfile(filepath) and (filepath.endswith(".xlsx") or filepath.endswith(".csv")):
-            self.process_selected_file(filepath)
-        else:
-            messagebox.showwarning("Неверный файл", f"Можно перетаскивать только файлы .xlsx и .csv.\nВы перетащили: {filepath}")
-
-    def select_file_callback(self):
-        filepath = filedialog.askopenfilename(title="Выберите файл", filetypes=(("Excel", "*.xlsx"), ("CSV", "*.csv")))
-        if filepath:
-            self.process_selected_file(filepath)
-            
     def start_generation_thread(self):
         if not self.input_filepath:
             messagebox.showerror("Ошибка", "Сначала выберите или перетащите файл!")
             return
-        self.update_generate_button_state(ready=False)
+        
+        # Блокируем все кнопки на время генерации
+        self.generate_button.configure(state="disabled")
+        self.download_result_button.configure(state="disabled")
+        self.restart_button.configure(state="disabled")
+
         self.progressbar.set(0)
         self.progressbar.start()
         self.log("="*40)
@@ -255,41 +217,59 @@ class App:
         
     def generation_finished(self, initial_count, total_count):
         self.log("Генерация успешно завершена!")
-        if initial_count != total_count:
+        if initial_count != total_count and total_count > 0:
             self.log(f"Найдено и отфильтровано записей: {initial_count}")
-            self.log(f"Итоговое кол-во записей после аугментации: {total_count}")
-        else:
-             self.log(f"Обработано и записано строк: {total_count}")
+        self.log(f"Итоговое кол-во записей: {total_count}")
         if total_count == 0:
-            self.log("ВНИМАНИЕ: По заданным критериям не найдено ни одной записи.")
+            self.log("ВНИМАНИЕ: Результат пустой. Файл не будет содержать данных.")
+        
         self.progressbar.stop()
         self.progressbar.set(1)
-        self.update_generate_button_state(ready=True)
-        if total_count > 0:
-            self.file_menu.entryconfigure("Сохранить как...", state="normal")
-            
+        
+        # ### ИЗМЕНЕНИЕ: Меняем кнопки ###
+        self.generate_button.grid_remove()
+        self.download_result_button.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        self.restart_button.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        
+        # Активируем кнопки после генерации
+        self.download_result_button.configure(state="normal")
+        self.restart_button.configure(state="normal")
+        self.file_menu.entryconfigure("Сохранить как...", state="normal")
+
     def generation_failed(self, error):
         self.log(f"ОШИБКА: {error}")
         messagebox.showerror("Ошибка генерации", str(error))
         self.progressbar.stop()
         self.progressbar.set(0)
-        self.update_generate_button_state(ready=True)
-        self.file_menu.entryconfigure("Сохранить как...", state="disabled")
+        # Возвращаем UI в состояние "готов к повторной попытке"
+        self.reset_to_initial_state()
+        # Но если файл был выбран, снова активируем кнопку "Сгенерировать"
+        if self.input_filepath:
+            self.process_selected_file(self.input_filepath)
 
+    # ### ИЗМЕНЕНИЕ: Улучшенная функция сохранения с проверками ###
     def save_file_callback(self):
-        if not os.path.exists(self.output_filename) or self.file_menu.entrycget("Сохранить как...", "state") == "disabled":
+        if self.file_menu.entrycget("Сохранить как...", "state") == "disabled":
             messagebox.showwarning("Нет данных", "Сначала успешно сгенерируйте файл для сохранения!")
             return
-        save_path = filedialog.asksaveasfilename(defaultextension=".jsonl", initialfile=self.output_filename, filetypes=[("JSON Lines", "*.jsonl")])
+
+        if not os.path.exists(self.output_filename):
+            messagebox.showerror("Ошибка сохранения", f"Не удалось найти промежуточный файл '{self.output_filename}'. Попробуйте сгенерировать данные снова.")
+            return
+
+        if os.path.getsize(self.output_filename) == 0:
+            messagebox.showwarning("Результат пуст", "Сгенерированный файл не содержит данных (пуст).\n\nСохранение отменено. Проверьте настройки фильтрации и исходный файл.")
+            return
+
+        save_path = filedialog.asksaveasfilename(defaultextension=".jsonl", initialfile=self.output_filename, title="Сохранить результат как...", filetypes=[("JSON Lines", "*.jsonl")])
         if save_path:
             try:
-                import shutil
                 shutil.copy(self.output_filename, save_path)
                 self.log(f"Файл успешно сохранен в: {save_path}")
                 messagebox.showinfo("Успех", f"Файл сохранен в:\n{save_path}")
             except Exception as e:
                 self.log(f"Ошибка сохранения: {e}")
-                messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {e}")
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
 
     def run_generation(self):
         try:
@@ -301,6 +281,46 @@ class App:
             self.root.after(100, lambda: self.generation_finished(initial_count, total_count))
         except Exception as e:
             self.root.after(100, lambda err=e: self.generation_failed(err))
+    
+    # --- Остальные хелперы без изменений ---
+    def download_template(self):
+        headers = ['id', 'domain', 'domain_description', 'sql_complexity', 'sql_complexity_description', 'sql_task_type', 'sql_task_type_description', 'sql_prompt', 'sql_context', 'sql', 'sql_explanation', 'prompt_variation_1', 'sql_variation_1', 'prompt_variation_2', 'sql_variation_2']
+        save_path = filedialog.asksaveasfilename(defaultextension=".csv", initialfile="template.csv", title="Сохранить шаблон как...", filetypes=[("CSV (разделители - запятые)", "*.csv")])
+        if not save_path: return
+        try:
+            with open(save_path, 'w', newline='', encoding='utf-8') as f:
+                csv.writer(f).writerow(headers)
+            self.log(f"Шаблон успешно сохранен в: {save_path}")
+            messagebox.showinfo("Успех", f"Шаблон 'template.csv' успешно сохранен!")
+        except Exception as e:
+            self.log(f"ОШИБКА при сохранении шаблона: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось сохранить файл шаблона:\n{e}")
+
+    def on_mouse_enter(self, event):
+        border_color = self.DND_READY_BG if self.input_filepath else customtkinter.ThemeManager.theme["CTkButton"]["fg_color"]
+        self.dnd_frame.configure(border_color=border_color)
+
+    def on_mouse_leave(self, event):
+        border_color = self.DND_READY_BG if self.input_filepath else self.DND_AWAITING_BG
+        self.dnd_frame.configure(border_color=border_color)
+
+    def on_drag_enter(self, event):
+        if not self.input_filepath: self.dnd_frame.configure(fg_color=self.DND_READY_BG)
+        return event.action
+
+    def on_drag_leave(self, event):
+        if not self.input_filepath: self.dnd_frame.configure(fg_color=self.DND_AWAITING_BG)
+
+    def handle_drop(self, event):
+        filepath = event.data.strip('{}')
+        if os.path.isfile(filepath) and (filepath.lower().endswith(".xlsx") or filepath.lower().endswith(".csv")):
+            self.process_selected_file(filepath)
+        else:
+            messagebox.showwarning("Неверный файл", f"Можно перетаскивать только файлы .xlsx и .csv.\nВы перетащили: {filepath}")
+
+    def select_file_callback(self):
+        filepath = filedialog.askopenfilename(title="Выберите файл", filetypes=(("Excel", "*.xlsx"), ("CSV", "*.csv"), ("Все файлы", "*.*")))
+        if filepath: self.process_selected_file(filepath)
             
     def toggle_augmentation_slider(self):
         state = "normal" if self.aug_checkbox.get() else "disabled"
@@ -322,13 +342,12 @@ class App:
         self.log_textbox.configure(state="disabled")
         self.log_textbox.see("end")
         
-    def show_help(self):
-        webbrowser.open_new_tab("https://github.com")
-
-    def show_about(self):
-        messagebox.showinfo("О программе", "SQL Dataset Generator LLM\n\nВерсия 1.7\nРазработано в рамках проекта Роспатента.")
+    def show_help(self): webbrowser.open_new_tab("https://github.com")
+    def show_about(self): messagebox.showinfo("О программе", "SQL Dataset Generator LLM\n\nВерсия 2.0\nРазработано в рамках проекта Роспатента.")
 
 if __name__ == "__main__":
+    customtkinter.set_appearance_mode("System")
+    customtkinter.set_default_color_theme("blue")
     root = CTk_dnd()
     app = App(root)
     root.mainloop()
